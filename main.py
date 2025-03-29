@@ -6,10 +6,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 )
+from aiogram.types import Message
+from aiogram import F
+
 from aiogram.fsm.storage.memory import MemoryStorage
 from database import create_tables, add_order
 from dotenv import load_dotenv
 import os
+from aiogram.fsm.storage.memory import MemoryStorage
+
 
 load_dotenv()
 # 🔑 Telegram bot tokeni va guruh ID
@@ -34,6 +39,9 @@ class OrderState(StatesGroup):
     duration = State()
     price = State()
     comment = State()
+
+class FileSendState(StatesGroup):
+    waiting_for_file = State()
 
 # 🔘 Tugmalar
 
@@ -73,6 +81,15 @@ def accept_order_keyboard(user_id):
         ]
     )
 
+def send_file_keyboard(user_id):
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Faylni jo‘natish", callback_data=f"send_file:{user_id}")]
+        ]
+    )
+
+accepted_orders = {}  # Bu joyda e'lon qilish kerak
+
 # 📤 Buyurtmani guruhga yuborish
 async def send_order_to_group(order_text: str, user_id: int):
     try:
@@ -94,6 +111,50 @@ async def send_order_to_group(order_text: str, user_id: int):
             )
     except Exception as e:
         print(f"⚠ Xatolik yuz berdi: {e}")
+
+# ✅ Buyurtmani qabul qilish
+@dp.callback_query(F.data.startswith("accept_order"))
+async def accept_order(callback: types.CallbackQuery):
+    user_id = int(callback.data.split(":")[1])  # Xaridor ID si
+    seller_id = callback.from_user.id  # Sotuvchi ID si
+    
+    accepted_orders[user_id] = seller_id  # Xaridor -> Sotuvchi bog'lanishi saqlanadi
+    
+    await bot.send_message(
+        chat_id=seller_id,  # ✅ Endi sotuvchiga yuboramiz!
+        text="🎉 *Siz buyurtmani qabul qildingiz!* Endi faylni jo'natishingiz mumkin.",
+        parse_mode="Markdown",
+        reply_markup=send_file_keyboard(user_id)  # ✅ Fayl yuborish tugmasi sotuvchiga boradi
+    )
+    await callback.answer("Buyurtma qabul qilindi ✅")
+
+# 📤 Fayl jo'natish bosqichi
+@dp.callback_query(F.data.startswith("send_file"))
+async def ask_for_file(callback: types.CallbackQuery, state: FSMContext):
+    buyer_id = int(callback.data.split(":")[1])  # Xaridor ID si
+    await state.update_data(buyer_id=buyer_id)  # ✅ Xaridor ID ni saqlaymiz
+    await bot.send_message(
+        chat_id=callback.from_user.id,  # ✅ Sotuvchi fayl yuborishi kerak
+        text="📂 *Faylni yuboring:*",
+        parse_mode="Markdown"
+    )
+    await state.set_state(FileSendState.waiting_for_file)
+
+# 📤 Faylni qabul qilish va mijozga yuborish
+@dp.message(FileSendState.waiting_for_file, F.document)
+async def receive_and_forward_file(message: Message, state: FSMContext):
+    data = await state.get_data()
+    buyer_id = data["buyer_id"]  # ✅ To'g'ri xaridorni olamiz
+
+    await bot.send_document(
+        chat_id=buyer_id,  # ✅ Fayl to‘g‘ri odamga boradi
+        document=message.document.file_id,
+        caption="📩 *Buyurtmangiz fayli keldi!*",
+        parse_mode="Markdown"
+    )
+    await message.reply("✅ *Fayl mijozga yuborildi!*", parse_mode="Markdown")
+    await state.clear()
+
 
 # ✅ Buyurtmani qabul qilish
 @dp.callback_query(lambda call: call.data.startswith("accept_order"))
