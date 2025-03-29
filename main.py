@@ -8,6 +8,7 @@ from aiogram.types import (
 )
 from aiogram.types import Message
 from aiogram import F
+from datetime import datetime, timedelta
 
 from aiogram.fsm.storage.memory import MemoryStorage
 from database import create_tables, add_order
@@ -88,6 +89,21 @@ def send_file_keyboard(user_id):
         ]
     )
 
+
+async def remind_seller(seller_id: int, buyer_id: int):
+    while buyer_id in accepted_orders:
+        await asyncio.sleep(15)  # 1 soat kutish
+        await bot.send_message(
+            chat_id=seller_id,
+            text="⏳ *Sizning xaridoringiz hali faylni kutmoqda!*",
+            parse_mode="Markdown"
+        )
+
+
+
+
+
+
 accepted_orders = {}  # Bu joyda e'lon qilish kerak
 
 # 📤 Buyurtmani guruhga yuborish
@@ -112,15 +128,18 @@ async def send_order_to_group(order_text: str, user_id: int):
     except Exception as e:
         print(f"⚠ Xatolik yuz berdi: {e}")
 
-# ✅ Buyurtmani qabul qilish
+
+
 @dp.callback_query(F.data.startswith("accept_order"))
 async def accept_order(callback: types.CallbackQuery):
-    buyer_id = int(callback.data.split(":")[1])  # Xaridor ID si
-    seller_id = callback.from_user.id  # Sotuvchi ID si
-    
-    accepted_orders[buyer_id] = seller_id  # Xaridor -> Sotuvchi bog'lanishi saqlanadi
-    
-    # Sotuvchiga fayl yuborish tugmasi bilan xabar
+    buyer_id = int(callback.data.split(":")[1])  
+    seller_id = callback.from_user.id  
+
+    accepted_orders[buyer_id] = seller_id  
+
+    # Har soatda eslatma yuborish uchun yangi task yaratamiz
+    asyncio.create_task(remind_seller(seller_id, buyer_id))
+
     await bot.send_message(
         chat_id=seller_id,
         text="🎉 *Siz buyurtmani qabul qildingiz!* Endi faylni jo'natishingiz mumkin.",
@@ -128,7 +147,6 @@ async def accept_order(callback: types.CallbackQuery):
         reply_markup=send_file_keyboard(buyer_id)
     )
 
-    # Xaridorga buyurtmasi qabul qilinganini bildirish
     await bot.send_message(
         chat_id=buyer_id,
         text="📩 *Buyurtmangiz qabul qilindi va tez orada sizga yuboriladi!*",
@@ -161,15 +179,21 @@ async def ask_for_file(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(FileSendState.waiting_for_file, F.document)
 async def receive_and_forward_file(message: Message, state: FSMContext):
     data = await state.get_data()
-    buyer_id = data["buyer_id"]  # ✅ To'g'ri xaridorni olamiz
+    buyer_id = data["buyer_id"]
 
     await bot.send_document(
-        chat_id=buyer_id,  # ✅ Fayl to‘g‘ri odamga boradi
+        chat_id=buyer_id,
         document=message.document.file_id,
         caption="📩 *Buyurtmangiz fayli keldi!*",
         parse_mode="Markdown"
     )
+
     await message.reply("✅ *Fayl mijozga yuborildi!*", parse_mode="Markdown")
+
+    # Sotuvchiga eslatma yuborishni to‘xtatish
+    if buyer_id in accepted_orders:
+        del accepted_orders[buyer_id]
+
     await state.clear()
 
 
@@ -222,14 +246,25 @@ async def get_requirements(message: types.Message, state: FSMContext):
 @dp.message(OrderState.requirements)
 async def get_duration(message: types.Message, state: FSMContext):
     await state.update_data(requirements=message.text)
-    await message.reply("⏳ *Muddat:*", parse_mode="Markdown", reply_markup=dedline_btns())
+    await message.reply("⏳ *Muddatni kiriting (YYYY-MM-DD HH:MM formatida):*", parse_mode="Markdown")
     await state.set_state(OrderState.duration)
 
 @dp.message(OrderState.duration)
 async def get_price(message: types.Message, state: FSMContext):
-    await state.update_data(duration=message.text)
-    await message.reply("💰 *Byudjet:*", parse_mode="Markdown")
-    await state.set_state(OrderState.price)
+    try:
+        deadline = datetime.strptime(message.text, "%Y-%m-%d %H:%M")
+        now = datetime.now()
+        if deadline <= now:
+            await message.reply("❌ Noto‘g‘ri vaqt! Faqat kelajakdagi vaqtni kiriting.")
+            return
+        
+        await state.update_data(duration=deadline.strftime("%Y-%m-%d %H:%M"))
+        await message.reply("💰 *Byudjet:*", parse_mode="Markdown")
+        await state.set_state(OrderState.price)
+
+    except ValueError:
+        await message.reply("❌ *Xato!* Iltimos, vaqtni quyidagi formatda kiriting: `YYYY-MM-DD HH:MM`", parse_mode="Markdown")
+
 
 @dp.message(OrderState.price)
 async def get_comment(message: types.Message, state: FSMContext):
