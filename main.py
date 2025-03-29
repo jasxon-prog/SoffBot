@@ -115,17 +115,26 @@ async def send_order_to_group(order_text: str, user_id: int):
 # ✅ Buyurtmani qabul qilish
 @dp.callback_query(F.data.startswith("accept_order"))
 async def accept_order(callback: types.CallbackQuery):
-    user_id = int(callback.data.split(":")[1])  # Xaridor ID si
+    buyer_id = int(callback.data.split(":")[1])  # Xaridor ID si
     seller_id = callback.from_user.id  # Sotuvchi ID si
     
-    accepted_orders[user_id] = seller_id  # Xaridor -> Sotuvchi bog'lanishi saqlanadi
+    accepted_orders[buyer_id] = seller_id  # Xaridor -> Sotuvchi bog'lanishi saqlanadi
     
+    # Sotuvchiga fayl yuborish tugmasi bilan xabar
     await bot.send_message(
-        chat_id=seller_id,  # ✅ Endi sotuvchiga yuboramiz!
+        chat_id=seller_id,
         text="🎉 *Siz buyurtmani qabul qildingiz!* Endi faylni jo'natishingiz mumkin.",
         parse_mode="Markdown",
-        reply_markup=send_file_keyboard(user_id)  # ✅ Fayl yuborish tugmasi sotuvchiga boradi
+        reply_markup=send_file_keyboard(buyer_id)
     )
+
+    # Xaridorga buyurtmasi qabul qilinganini bildirish
+    await bot.send_message(
+        chat_id=buyer_id,
+        text="📩 *Buyurtmangiz qabul qilindi va tez orada sizga yuboriladi!*",
+        parse_mode="Markdown"
+    )
+
     await callback.answer("Buyurtma qabul qilindi ✅")
 
 # 📤 Fayl jo'natish bosqichi
@@ -133,6 +142,14 @@ async def accept_order(callback: types.CallbackQuery):
 async def ask_for_file(callback: types.CallbackQuery, state: FSMContext):
     buyer_id = int(callback.data.split(":")[1])  # Xaridor ID si
     await state.update_data(buyer_id=buyer_id)  # ✅ Xaridor ID ni saqlaymiz
+    
+    # Xaridorga "Fayl jo‘natilmoqda..." degan xabar boradi
+    await bot.send_message(
+        chat_id=buyer_id,
+        text="⏳ *Fayl jo‘natilmoqda...*",
+        parse_mode="Markdown"
+    )
+    
     await bot.send_message(
         chat_id=callback.from_user.id,  # ✅ Sotuvchi fayl yuborishi kerak
         text="📂 *Faylni yuboring:*",
