@@ -4,18 +4,16 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import (
-    ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+    ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice, PreCheckoutQuery
 )
 from aiogram.types import Message
 from aiogram import F
-from datetime import datetime, timedelta
-
+from datetime import datetime
 from aiogram.fsm.storage.memory import MemoryStorage
 from database import create_tables, add_order,get_user_orders
 from dotenv import load_dotenv
 import os
 from aiogram.fsm.storage.memory import MemoryStorage
-
 
 load_dotenv()
 # 🔑 Telegram bot tokeni va guruh ID
@@ -23,7 +21,6 @@ TOKEN = os.getenv("TOKEN")
 GROUP_CHAT_ID_1 = int(os.getenv("GROUP_CHAT_ID_1"))  # 1-guruh ID
 GROUP_CHAT_ID_2 = int(os.getenv("GROUP_CHAT_ID_2"))  # 2-guruh ID
 PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN")
-
 
 # 🤖 Bot va Dispatcher obyektlari
 bot = Bot(token=TOKEN)
@@ -47,7 +44,6 @@ class FileSendState(StatesGroup):
     waiting_for_file = State()
 
 # 🔘 Tugmalar
-
 def reply_start_btns():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -56,26 +52,42 @@ def reply_start_btns():
             [KeyboardButton(text='💳 To‘lov qilish')],
             [KeyboardButton(text='📞 Admin bilan bog‘lanish')]
         ],
-        resize_keyboard=True
+        resize_keyboard=True,
+        one_time_keyboard=True  # ✅ One-time keyboard qo'shildi
     )
 
 def work_type_btns():
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text='1️⃣ Kurs ishi')], [KeyboardButton(text='2️⃣ Slayd')],
-        [KeyboardButton(text='3️⃣ Mustaqil ish')]
-    ], resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text='1️⃣ Kurs ishi')],
+            [KeyboardButton(text='2️⃣ Slayd')],
+            [KeyboardButton(text='3️⃣ Mustaqil ish')]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True  # ✅ One-time keyboard qo'shildi
+    )
 
 def language_btns():
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="O'zbek")], [KeyboardButton(text="Rus")],
-        [KeyboardButton(text="Ingliz")]
-    ], resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="O'zbek")],
+            [KeyboardButton(text="Rus")],
+            [KeyboardButton(text="Ingliz")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True  # ✅ One-time keyboard qo'shildi
+    )
 
 def dedline_btns():
-    return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="Zudlik bilan")], [KeyboardButton(text="3 kun")],
-        [KeyboardButton(text="1 hafta")]
-    ], resize_keyboard=True)
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="Zudlik bilan")],
+            [KeyboardButton(text="3 kun")],
+            [KeyboardButton(text="1 hafta")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True  # ✅ One-time keyboard qo'shildi
+    )
 
 def accept_order_keyboard(user_id):
     return InlineKeyboardMarkup(
@@ -91,7 +103,6 @@ def send_file_keyboard(user_id):
         ]
     )
 
-
 async def remind_seller(seller_id: int, buyer_id: int):
     while buyer_id in accepted_orders:
         await asyncio.sleep(3600)  # 1 soat kutish
@@ -100,15 +111,6 @@ async def remind_seller(seller_id: int, buyer_id: int):
             text="⏳ *Sizning xaridoringiz hali faylni kutmoqda!*",
             parse_mode="Markdown"
         )
-
-'''TO'LOV TIZIMI BOYICHA YOZILGA CODE'''
-
-from aiogram.types import LabeledPrice, PreCheckoutQuery
-
-# ✅ Telegram Payments API token
-
-
-
 
 accepted_orders = {}  # Bu joyda e'lon qilish kerak
 
@@ -133,10 +135,6 @@ async def send_order_to_group(order_text: str, user_id: int):
             )
     except Exception as e:
         print(f"⚠ Xatolik yuz berdi: {e}")
-
-
-
-from aiogram.types import LabeledPrice, PreCheckoutQuery
 
 # 💳 To‘lovni boshlash
 async def create_payment(price, user_id):
@@ -215,7 +213,6 @@ async def successful_payment_handler(message: types.Message):
 
     await message.reply("✅ To‘lov muvaffaqiyatli amalga oshirildi! Fayl jo‘natilishi kutilmoqda.")
 
-
 # 📤 Fayl jo'natish bosqichi
 @dp.callback_query(F.data.startswith("send_file"))
 async def ask_for_file(callback: types.CallbackQuery, state: FSMContext):
@@ -256,7 +253,6 @@ async def receive_and_forward_file(message: Message, state: FSMContext):
         del accepted_orders[buyer_id]
 
     await state.clear()
-
 
 # ✅ Buyurtmani qabul qilish
 @dp.callback_query(lambda call: call.data.startswith("accept_order"))
@@ -325,7 +321,6 @@ async def get_price(message: types.Message, state: FSMContext):
 
     except ValueError:
         await message.reply("❌ *Xato!* Iltimos, vaqtni quyidagi formatda kiriting: `YYYY-MM-DD HH:MM`", parse_mode="Markdown")
-
 
 @dp.message(OrderState.price)
 async def get_comment(message: types.Message, state: FSMContext):
