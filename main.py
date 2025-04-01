@@ -150,15 +150,20 @@ async def create_payment(price, user_id):
         start_parameter="buy_order"
     )
 
-# ✅ Sotuvchi buyurtmani qabul qilganda
 @dp.callback_query(F.data.startswith("accept_order"))
 async def accept_order(callback: types.CallbackQuery):
-    buyer_id = int(callback.data.split(":")[1])  
-    seller_id = callback.from_user.id  
+    buyer_id = int(callback.data.split(":")[1])  # Buyurtma bergan foydalanuvchi ID si
+    seller_id = callback.from_user.id  # Buyurtmani qabul qilgan foydalanuvchi ID si
 
+    # 🔴 Foydalanuvchi o‘z buyurtmasini qabul qila olmasligi kerak
+    if buyer_id == seller_id:
+        await callback.answer("❌ Siz o'zingiz bergan buyurtmani qabul qila olmaysiz!", show_alert=True)
+        return
+
+    # ✅ Buyurtmani qabul qilish jarayoni
     accepted_orders[buyer_id] = seller_id  
 
-    # Xaridorga to'lov qilish haqida xabar yuborish
+    # Buyurtma beruvchiga xabar yuborish
     await bot.send_message(
         chat_id=buyer_id,
         text="✅ *Buyurtmangiz qabul qilindi!* To‘lovni amalga oshirsangiz, fayl sizga yuboriladi.",
@@ -169,6 +174,16 @@ async def accept_order(callback: types.CallbackQuery):
             ]
         )
     )
+
+    # Buyurtmani qabul qilgan foydalanuvchiga xabar yuborish
+    await bot.send_message(
+        chat_id=seller_id,
+        text="🎉 *Siz buyurtmani qabul qildingiz!* To‘lov amalga oshirilishini kuting.",
+        parse_mode="Markdown"
+    )
+
+    await callback.answer("Buyurtma qabul qilindi ✅")
+
 
     await bot.send_message(
         chat_id=seller_id,
