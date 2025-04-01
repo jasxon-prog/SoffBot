@@ -11,7 +11,7 @@ from aiogram import F
 from datetime import datetime, timedelta
 
 from aiogram.fsm.storage.memory import MemoryStorage
-from database import create_tables, add_order
+from database import create_tables, add_order,get_user_orders
 from dotenv import load_dotenv
 import os
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -22,6 +22,8 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 GROUP_CHAT_ID_1 = int(os.getenv("GROUP_CHAT_ID_1"))  # 1-guruh ID
 GROUP_CHAT_ID_2 = int(os.getenv("GROUP_CHAT_ID_2"))  # 2-guruh ID
+PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN")
+
 
 # 🤖 Bot va Dispatcher obyektlari
 bot = Bot(token=TOKEN)
@@ -92,14 +94,18 @@ def send_file_keyboard(user_id):
 
 async def remind_seller(seller_id: int, buyer_id: int):
     while buyer_id in accepted_orders:
-        await asyncio.sleep(15)  # 1 soat kutish
+        await asyncio.sleep(3600)  # 1 soat kutish
         await bot.send_message(
             chat_id=seller_id,
             text="⏳ *Sizning xaridoringiz hali faylni kutmoqda!*",
             parse_mode="Markdown"
         )
 
+'''TO'LOV TIZIMI BOYICHA YOZILGA CODE'''
 
+from aiogram.types import LabeledPrice, PreCheckoutQuery
+
+# ✅ Telegram Payments API token
 
 
 
@@ -130,6 +136,23 @@ async def send_order_to_group(order_text: str, user_id: int):
 
 
 
+from aiogram.types import LabeledPrice, PreCheckoutQuery
+
+# 💳 To‘lovni boshlash
+async def create_payment(price, user_id):
+    prices = [LabeledPrice(label="Ilmiy ish buyurtmasi", amount=price * 100)]  # So‘mni tiyin/sentga o‘girish
+    await bot.send_invoice(
+        chat_id=user_id,
+        title="Ilmiy ish buyurtmasi",
+        description="Sizning ilmiy ish buyurtmangiz uchun to‘lov.",
+        payload=f"order_{user_id}",
+        provider_token=PAYMENT_PROVIDER_TOKEN,
+        currency="UZS",
+        prices=prices,
+        start_parameter="buy_order"
+    )
+
+# ✅ Sotuvchi buyurtmani qabul qilganda
 @dp.callback_query(F.data.startswith("accept_order"))
 async def accept_order(callback: types.CallbackQuery):
     buyer_id = int(callback.data.split(":")[1])  
@@ -137,23 +160,61 @@ async def accept_order(callback: types.CallbackQuery):
 
     accepted_orders[buyer_id] = seller_id  
 
-    # Har soatda eslatma yuborish uchun yangi task yaratamiz
-    asyncio.create_task(remind_seller(seller_id, buyer_id))
-
+    # Xaridorga to'lov qilish haqida xabar yuborish
     await bot.send_message(
-        chat_id=seller_id,
-        text="🎉 *Siz buyurtmani qabul qildingiz!* Endi faylni jo'natishingiz mumkin.",
+        chat_id=buyer_id,
+        text="✅ *Buyurtmangiz qabul qilindi!* To‘lovni amalga oshirsangiz, fayl sizga yuboriladi.",
         parse_mode="Markdown",
-        reply_markup=send_file_keyboard(buyer_id)
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="💳 To‘lov qilish", callback_data=f"pay_now:{buyer_id}")]
+            ]
+        )
     )
 
     await bot.send_message(
-        chat_id=buyer_id,
-        text="📩 *Buyurtmangiz qabul qilindi va tez orada sizga yuboriladi!*",
+        chat_id=seller_id,
+        text="🎉 *Siz buyurtmani qabul qildingiz!* To‘lov amalga oshirilishini kuting.",
         parse_mode="Markdown"
     )
 
     await callback.answer("Buyurtma qabul qilindi ✅")
+
+# 💳 Xaridor to'lov qilish tugmasini bossagina invoice yuboriladi
+@dp.callback_query(F.data.startswith("pay_now"))
+async def process_payment(callback: types.CallbackQuery):
+    buyer_id = int(callback.data.split(":")[1])
+    order_data = get_user_orders(buyer_id)  
+    
+    if not order_data:
+        await callback.message.reply("❌ Buyurtma topilmadi.")
+        return
+    
+    total_price = int(order_data[-1][7])  # Oxirgi buyurtma summasini olish
+    await create_payment(total_price, buyer_id)  
+    await callback.answer("To‘lov oynasi ochildi ✅")
+
+# ✅ To‘lovni tasdiqlash
+@dp.pre_checkout_query()
+async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+# ✅ Muvaffaqiyatli to‘lovdan keyin sotuvchiga xabar yuborish
+@dp.message(F.successful_payment)
+async def successful_payment_handler(message: types.Message):
+    buyer_id = message.from_user.id
+    seller_id = accepted_orders.get(buyer_id)
+
+    if seller_id:
+        await bot.send_message(
+            chat_id=seller_id,
+            text="✅ *To‘lov amalga oshirildi!* Endi faylni xaridorga jo‘natishingiz mumkin.",
+            parse_mode="Markdown",
+            reply_markup=send_file_keyboard(buyer_id)
+        )
+
+    await message.reply("✅ To‘lov muvaffaqiyatli amalga oshirildi! Fayl jo‘natilishi kutilmoqda.")
+
 
 # 📤 Fayl jo'natish bosqichi
 @dp.callback_query(F.data.startswith("send_file"))
@@ -270,7 +331,7 @@ async def get_price(message: types.Message, state: FSMContext):
 async def get_comment(message: types.Message, state: FSMContext):
     try:
         price = int(message.text)  # Kiritilgan qiymatni integerga o'tkazamiz
-        if price < 5000:
+        if price < 1000:
             await message.reply("❌ Minimal byudjet 5000 so‘m bo‘lishi kerak! Qayta kiriting.")
             return  # Ushbu bosqichda to‘xtaymiz, yangi davlat holatiga o‘tmaymiz
 

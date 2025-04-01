@@ -21,6 +21,26 @@ def create_tables():
     conn.commit()
     conn.close()
 
+
+
+
+
+def get_user_orders(user_id):
+    # Ma'lumotlar bazasiga ulanish
+    conn = sqlite3.connect('orders.db')
+    cursor = conn.cursor()
+
+    # Foydalanuvchi buyurtmalarini olish
+    cursor.execute("SELECT * FROM orders WHERE user_id=?", (user_id,))
+    orders = cursor.fetchall()
+
+    conn.close()
+
+    return orders
+
+
+
+
 # 📌 Yangi buyurtmani qo‘shish
 def add_order(order_data, user_id):
     conn = sqlite3.connect("orders.db")
@@ -88,3 +108,5 @@ def update_order(order_id, updated_data):
     ))
     conn.commit()
     conn.close()
+
+
