@@ -16,7 +16,9 @@ def create_tables():
             price INTEGER,
             deadline TEXT,
             status TEXT DEFAULT 'Ochiq' CHECK(status IN ('Ochiq', 'Qabul qilingan')),            user_id INTEGER,
-            accepted_by INTEGER DEFAULT NULL
+            accepted_by INTEGER DEFAULT NULL,
+            rating INTEGER DEFAULT NULL, 
+            complaints INTEGER DEFAULT 0 
         )
     ''')
 
@@ -61,6 +63,68 @@ def add_order(order_data, user_id):
     order_id = cursor.lastrowid  # Yangi qo'shilgan buyurtmaning ID sini olish
     conn.close()
     return order_id
+
+
+
+
+
+# 📌 Buyurtmaga rating qo'shish
+def add_rating(order_id, rating):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+
+    # Buyurtmaga rating qo'shish yoki yangilash
+    cursor.execute("UPDATE orders SET rating = ? WHERE id = ?", (rating, order_id))
+
+    conn.commit()
+    conn.close()
+
+
+# 📌 Buyurtmaning bahosini olish
+def get_order_rating(order_id):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT rating FROM orders WHERE id = ?", (order_id,))
+    rating = cursor.fetchone()
+    
+    conn.close()
+    
+    if rating:
+        return rating[0]
+    return None
+
+
+
+# 📌 Sotuvchining statistikasini olish (shikoyatlarni ham hisoblash)
+def get_seller_statistics(seller_id):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+
+    # Sotuvchiga tegishli barcha buyurtmalarni olish
+    cursor.execute("""
+        SELECT o.id, o.status, o.rating, o.complaints
+        FROM orders o
+        WHERE o.accepted_by = ?
+    """, (seller_id,))
+    
+    orders = cursor.fetchall()
+
+    total_orders = len(orders)
+    total_complaints = sum(1 for order in orders if order[3] == 1)  # Shikoyat bor buyurtmalar
+    total_rating = sum(order[2] for order in orders if order[2] is not None)  # Rating bo'lgan buyurtmalar
+
+    avg_rating = total_rating / total_orders if total_orders else 0
+
+    conn.close()
+    
+    return {
+        "total_orders": total_orders,
+        "total_complaints": total_complaints,
+        "avg_rating": avg_rating
+    }
+
+
 
 
 

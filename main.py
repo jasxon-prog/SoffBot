@@ -11,6 +11,7 @@ from aiogram.types import (
 from datetime import datetime
 from dotenv import load_dotenv
 from database import *
+from aiogram.types import CallbackQuery
 
 
 load_dotenv()
@@ -18,6 +19,7 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 GROUP_CHAT_ID_1 = -1002451039792
 GROUP_CHAT_ID_2 = -1002696109474
+GROUP_CHAT_ID_ADMIN = -1002276366884
 PAYMENT_PROVIDER_TOKEN = os.getenv("PAYMENT_PROVIDER_TOKEN")
 
 
@@ -221,7 +223,6 @@ async def edit_order(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(OrderState.category)  # Boshlang‘ich state ga qaytarish
 
 
-# ✅ Sotuvchi buyurtmani qabul qilganda
 @dp.callback_query(F.data.startswith("accept_"))
 async def accept_order_callback(callback_query: types.CallbackQuery):
     order_id = int(callback_query.data.split("_")[1])
@@ -233,13 +234,20 @@ async def accept_order_callback(callback_query: types.CallbackQuery):
         await callback_query.answer("❌ Buyurtma topilmadi!", show_alert=True)
         return
 
-    buyer_id = order[7]
+    # Buyurtma qabul qilinishini tekshirish
+    if order[6] == "Qabul qilingan":
+        await callback_query.answer("❌ Bu buyurtma allaqachon qabul qilingan!", show_alert=True)
+        return
+
+    # Sotuvchi o'zining buyurtmasini qabul qila olmaydi
     if seller_id == buyer_id:
         await callback_query.answer("❌ O‘z buyurtmangizni qabul qila olmaysiz!", show_alert=True)
         return
 
+    # Buyurtma qabul qilish
     accept_order(order_id, seller_id)
-    accepted_orders[buyer_id] = seller_id  # Xaridor va sotuvchini bog‘lash
+    update_order_status(order_id, 'Qabul qilingan', seller_id)  # Buyurtmaning holatini yangilash
+    accepted_orders[buyer_id] = (seller_id, order_id) # Xaridor va sotuvchini bog‘lash
 
     # Xaridorga xabar va to‘lov tugmasini yuborish
     await bot.send_message(
@@ -259,6 +267,9 @@ async def accept_order_callback(callback_query: types.CallbackQuery):
     )
 
     await callback_query.answer("✅ Buyurtma qabul qilindi!")
+
+
+
 
 async def send_order_to_group(order_id, group_id, user_id=None):
     order = get_order_by_id(order_id)
@@ -292,100 +303,31 @@ async def send_order_to_group(order_id, group_id, user_id=None):
 
 user_offer_data = {}
 
-# @dp.callback_query(F.data.startswith("offer_"))
-# async def offer_order_callback(callback_query: types.CallbackQuery):
-#     order_id = int(callback_query.data.split("_")[1])
-#     seller_id = callback_query.from_user.id
-
-#     # Sotuvchi oldin taklif berganini tekshiramiz
-#     if seller_id in user_offer_data and user_offer_data[seller_id]["order_id"] == order_id:
-#         await callback_query.answer("⚠️ Siz allaqachon bu buyurtmaga taklif bergansiz!", show_alert=True)
-#         return
-
-#     # Sotuvchining yangi taklifini saqlaymizMessage
-#     user_offer_data[seller_id] = {
-#         "order_id": order_id,
-#         "seller_id": seller_id,
-#         "waiting_for_money": True 
-#     }
-
-#     await callback_query.answer()
-
-#     await bot.send_message(
-#         chat_id=seller_id,
-#         text="💰 O'z narxingizni kiriting:"
-#     )
-
-
-
 @dp.callback_query(F.data.startswith("offer_"))
 async def offer_order_callback(callback_query: types.CallbackQuery):
     order_id = int(callback_query.data.split("_")[1])
     seller_id = callback_query.from_user.id
 
-    # Buyurtmaning statusini tekshirish
-    order_status = get_order_status(order_id)
-
-    if order_status and order_status[0] == "Qabul qilingan":
-        await callback_query.answer("❌ Buyurtma allaqachon qabul qilingan, yangi taklif berish mumkin emas.", show_alert=True)
-        return
-
-    # Buyurtma qabul qilishni faqat birinchi sotuvchi amalga oshirishi kerak
-    if order_status and order_status[0] == "Ochiq":
-        # Buyurtma qabul qilinishi bilan, boshqa sotuvchilarni cheklash
-        update_order_status(order_id, 'Qabul qilingan', seller_id)
-
-        # Boshqa sotuvchilarga buyurtma allaqachon qabul qilinganini xabar qilish
-        for user in user_offer_data:
-            if user != seller_id:
-                await bot.send_message(
-                    chat_id=user,
-                    text=f"❌ Buyurtma {order_id} allaqachon qabul qilindi. Yangi taklif berish mumkin emas."
-                )
-
-        # Taklif va qabul qilish tugmalarini olib tashlash
-        await bot.edit_message_reply_markup(
-            chat_id=callback_query.message.chat.id,
-            message_id=callback_query.message.message_id,
-            reply_markup=None  # Tugmalarni olib tashlash
-        )
-
-        # Qabul qilishni muvaffaqiyatli amalga oshirgandan so'ng
-        await callback_query.answer("✅ Siz buyurtmani qabul qildingiz!")
-
-        # Sotuvchiga narxni kiritish uchun so'rov yuborish
-        await bot.send_message(
-            chat_id=seller_id,
-            text="💰 O'z narxingizni kiriting:"
-        )
-        return
-
     # Sotuvchi oldin taklif berganini tekshiramiz
-    if seller_id in user_offer_data:
-        # Agar sotuvchi buyurtmani tasdiqlagan bo'lsa, yangi taklif berishga ruxsat bermaymiz
-        if user_offer_data[seller_id]["order_id"] == order_id and not user_offer_data[seller_id]["waiting_for_money"]:
-            await callback_query.answer("❌ Siz ushbu buyurtmaga taklif bera olmaysiz, chunki buyurtma qabul qilingan.", show_alert=True)
-            return
-        
-        # Sotuvchi oldin taklif bergan bo'lsa, uni cheklash
-        if user_offer_data[seller_id]["order_id"] == order_id:
-            await callback_query.answer("⚠️ Siz allaqachon bu buyurtmaga taklif bergansiz!", show_alert=True)
-            return
+    if seller_id in user_offer_data and user_offer_data[seller_id]["order_id"] == order_id:
+        await callback_query.answer("⚠️ Siz allaqachon bu buyurtmaga taklif bergansiz!", show_alert=True)
+        return
 
-    # Sotuvchining yangi taklifini saqlaymiz
+    # Sotuvchining yangi taklifini saqlaymizMessage
     user_offer_data[seller_id] = {
         "order_id": order_id,
         "seller_id": seller_id,
-        "waiting_for_money": True  # Taklif qabul qilinishini kutyapti
+        "waiting_for_money": True 
     }
 
     await callback_query.answer()
 
-    # Sotuvchiga narxni kiritish uchun so'rov yuborish
     await bot.send_message(
         chat_id=seller_id,
         text="💰 O'z narxingizni kiriting:"
     )
+
+
 
 
 
@@ -448,11 +390,31 @@ async def set_offer_comment(message: types.Message, state: FSMContext):
         InlineKeyboardButton(text="✏️ Tahrirlash", callback_data="editoffer")
     ]])
 
-    await bot.send_message(
+    await bot.send_message( 
         chat_id=seller_id,
-        text=f"📝 Taklif: {money} so'm\nIzoh: {comment}\n\nTasdiqlang yoki tahrirlang.",
+        text = (
+                f"📝 *Taklif tafsilotlari:*\n"
+                f"💰 Narx: *{money} so'm*\n"
+                f"🗒 Izoh: _{comment}_\n\n"
+                f"⚠️ *Ogohlantirish:*\n"
+                f"Sizning bergan takliflaringiz administrator tomonidan tekshiriladi. "
+                f"Telefon raqami yoki boshqa shaxsiy ma'lumotlarni yozish *qattiyan man etiladi!* "
+                f"Aks holda sizga nisbatan chora ko‘riladi.\n\n"
+                f"Quyidagi tugmalar orqali taklifni tasdiqlang yoki tahrirlang."
+            ),
         reply_markup=keyboard
-    )
+        )
+
+import re
+
+# Telefon raqami yoki emailni tekshirish uchun regex
+def contains_personal_info(text: str) -> bool:
+    uzbek_phone_pattern = r"(\+998|0)?\d{9}"  # +998 bilan yoki +998siz 9 raqamli telefon raqami
+    email_pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"  # Email formati
+
+    if re.search(uzbek_phone_pattern, text) or re.search(email_pattern, text):
+        return True
+    return False
 
 @dp.callback_query(F.data == "confirmoffer")
 async def confirm_offer_handler(callback: types.CallbackQuery, state: FSMContext):
@@ -462,41 +424,79 @@ async def confirm_offer_handler(callback: types.CallbackQuery, state: FSMContext
     money = data.get("money")
     comment = data.get("comment")
 
-    # Bazaga qo‘shish
-    add_offer(order_id, seller_id, money, comment)
-    offers.append({
-        "order_id": order_id,
-        "seller_id": seller_id,
-        "money": money,
-        "comment": comment
-    })
+    seller_username = callback.from_user.username or "username yo'q"
+    seller_fullname = callback.from_user.full_name
 
-    # Buyurtmachining ID sini olish
-    buyer_id = get_order_by_id(order_id)[7]
-
-    # Takliflar tugmalarini yaratish
-    buttons = [
-        InlineKeyboardButton(
-            text=f"✅ Taklif: {offer['money']} - {offer['comment']}",
-            callback_data=f"select_offer_{offer['order_id']}_{offer['seller_id']}"
+    # money va comment ni stringga aylantirish
+    if contains_personal_info(str(money)) or contains_personal_info(str(comment)):
+        admin_text = (
+            f"⚠️ *Shubhali ma'lumot yuborildi!*\n"
+            f"🧑 Sotuvchi: [{seller_fullname}](tg://user?id={seller_id})\n"
+            f"📦 Buyurtma ID: {order_id}\n"
+            f"💰 Narx: {money}\n"
+            f"📝 Izoh: {comment}\n\n"
+            f"Telefon raqami yoki email mavjud!"
         )
-        for offer in offers if offer['order_id'] == order_id
-    ]
-    reply_markup = InlineKeyboardMarkup(
-        inline_keyboard=[buttons[i:i + 3] for i in range(0, len(buttons), 3)]
-    )
+        await bot.send_message(chat_id=GROUP_CHAT_ID_ADMIN, text=admin_text, parse_mode="Markdown")
+        await callback.message.edit_text("✅ Taklifingiz muvaffaqiyatli yuborildi.")
+        await state.clear()
 
-    # Buyurtmachiga yuborish
-    await bot.send_message(
-        chat_id=buyer_id,
-        text="📢 *Yangi takliflar!* \n\nTakliflar ro‘yxatini ko‘rib chiqing va keraklisini tanlang.",
-        reply_markup=reply_markup,
-        parse_mode="Markdown"
-    )
+    else:
+        # Bazaga qo‘shish
+        add_offer(order_id, seller_id, money, comment)
+        offers.append({
+            "order_id": order_id,
+            "seller_id": seller_id,
+            "money": money,
+            "comment": comment
+        })
 
-    # Sotuvchiga javob
-    await callback.message.edit_text("✅ Taklifingiz muvaffaqiyatli yuborildi.")
-    await state.clear()
+        # Buyurtmachining ID sini olish
+        buyer_id = get_order_by_id(order_id)[7]
+
+        # Takliflar tugmalarini yaratish
+        buttons = [
+            InlineKeyboardButton(
+                text=f"✅ Taklif: {offer['money']} - {offer['comment']}",
+                callback_data=f"select_offer_{offer['order_id']}_{offer['seller_id']}"
+            )
+            for offer in offers if offer['order_id'] == order_id
+        ]
+        reply_markup = InlineKeyboardMarkup(
+            inline_keyboard=[buttons[i:i + 3] for i in range(0, len(buttons), 3)]
+        )
+
+        seller_username = callback.from_user.username or "username yo'q"
+        seller_fullname = callback.from_user.full_name
+
+        # Admin guruhga yuboriladigan xabar
+        admin_text = (
+            f"📥 *Yangi taklif!*\n\n"
+            f"🧑 Sotuvchi: [{seller_fullname}](tg://user?id={seller_id})\n"
+            f"💰 Narx: {money}\n"
+            f"📝 Izoh: {comment}\n"
+            f"📦 Buyurtma ID: {order_id}"
+        )
+
+        await bot.send_message(chat_id=GROUP_CHAT_ID_ADMIN, text=admin_text, parse_mode="Markdown")
+
+        # Buyurtmachiga yuborish
+        await bot.send_message(
+            chat_id=buyer_id,
+            text="📢 *Yangi takliflar!* \n\nTakliflar ro‘yxatini ko‘rib chiqing va keraklisini tanlang.",
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
+
+                # Sotuvchiga javob
+
+
+
+        # Sotuvchiga javob
+        await callback.message.edit_text("✅ Taklifingiz muvaffaqiyatli yuborildi.")
+        await state.clear()
+
+
 
 @dp.callback_query(F.data == "editoffer")
 async def edit_offer_callback(callback: types.CallbackQuery, state: FSMContext):
@@ -618,10 +618,10 @@ async def create_payment(price, user_id):
     )
     
 
-def send_file_keyboard(user_id):
+def send_file_keyboard(user_id,order_id):
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📤 Faylni jo‘natish", callback_data=f"send_file:{user_id}")]
+            [InlineKeyboardButton(text="📤 Faylni jo‘natish", callback_data=f"send_file:{user_id}:{order_id}")]
         ]
     )
 
@@ -651,7 +651,8 @@ async def pre_checkout_query_handler(pre_checkout_query: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def successful_payment_handler(message: types.Message):
     buyer_id = message.from_user.id
-    seller_id = accepted_orders.get(buyer_id)
+    seller_id, order_id = accepted_orders.get(buyer_id, (None, None))
+
 
 
 
@@ -660,7 +661,7 @@ async def successful_payment_handler(message: types.Message):
             chat_id=seller_id,
             text="✅ *To‘lov amalga oshirildi!* Endi faylni xaridorga jo‘natishingiz mumkin.",
             parse_mode="Markdown",
-            reply_markup=send_file_keyboard(buyer_id)
+            reply_markup=send_file_keyboard(buyer_id,order_id)
         )
 
     await message.reply("✅ To‘lov muvaffaqiyatli amalga oshirildi! Fayl jo‘natilishi kutilmoqda.")
@@ -672,9 +673,11 @@ async def successful_payment_handler(message: types.Message):
 # 📤 Fayl jo'natish bosqichi
 @dp.callback_query(F.data.startswith("send_file"))
 async def ask_for_file(callback: types.CallbackQuery, state: FSMContext):
-    buyer_id = int(callback.data.split(":")[1])  # Xaridor ID si
+    parts = callback.data.split(":")
+    buyer_id = int(parts[1])
+    order_id = int(parts[2]) if len(parts) > 2 else None  # Xaridor ID si
     
-    await state.update_data(buyer_id=buyer_id)  # ✅ Xaridor ID ni saqlaymiz
+    await state.update_data(buyer_id=buyer_id,order_id=order_id)  # ✅ Xaridor ID ni saqlaymiz
     
     # Xaridorga "Fayl jo‘natilmoqda..." degan xabar boradi
     await bot.send_message(
@@ -692,16 +695,37 @@ async def ask_for_file(callback: types.CallbackQuery, state: FSMContext):
 
 
 
-# 📤 Faylni qabul qilish va mijozga yuborish
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+# Faylni qabul qilish va mijozga yuborish
 @dp.message(FileSendState.waiting_for_file, F.document)
 async def receive_and_forward_file(message: Message, state: FSMContext):
     data = await state.get_data()
     buyer_id = data["buyer_id"]
+    order_id = data.get("order_id", "XXXX")  # order_id mavjud bo‘lmasa, XXXX bo‘ladi
 
+    # Inline tugmalar
+    buttons = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="✅ Tasdiqlash va sotuvchiga baho berish",
+                callback_data=f"confirmorder_{order_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="❗ Muammo bor - Admin bilan bog‘lanish",
+                callback_data="contact_admin"
+            )
+        ]
+    ])
+
+    # Xaridorga fayl yuborish
     await bot.send_document(
         chat_id=buyer_id,
         document=message.document.file_id,
-        caption="📩 *Buyurtmangiz fayli keldi!*",
+        caption=f"✅ Siz bergan #{order_id}-RAQAM dagi buyurtmangiz yetib keldi!\n\nQuyidagi tugmalardan birini tanlang:",
+        reply_markup=buttons,
         parse_mode="Markdown"
     )
 
@@ -712,6 +736,80 @@ async def receive_and_forward_file(message: Message, state: FSMContext):
         del accepted_orders[buyer_id]
 
     await state.clear()
+
+
+@dp.callback_query(F.data == "contact_admin")
+async def contact_admin(callback: CallbackQuery):
+    admin_info = (
+        "📞 Admin bilan bog‘lanish:\n"
+        "👤 Ismi: Avazbek\n"
+        "📱 Telegram: @admin_username\n"
+        "📞 Telefon: +998 90 123 45 67\n\n"
+        "ℹ️ Eslatma: Iltimos, adminga murojaat qilayotganda avval buyurtma raqamingizni yozing, "
+        "so‘ngra muammo yoki shikoyatingizni tushuntiring. Bu javob berish jarayonini tezlashtiradi."
+    )
+
+    await callback.message.answer(admin_info)
+    await callback.answer()
+
+
+
+
+@dp.callback_query(F.data.startswith("confirmorder"))
+async def confirm_order(callback: CallbackQuery):
+    try:
+        order_id = int(callback.data.split("_")[1])
+
+        # Baholash uchun tugmalar
+        rating_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⭐️1", callback_data=f"rate:{order_id}:1"),
+                InlineKeyboardButton(text="⭐️2", callback_data=f"rate:{order_id}:2"),
+                InlineKeyboardButton(text="⭐️3", callback_data=f"rate:{order_id}:3"),
+                InlineKeyboardButton(text="⭐️4", callback_data=f"rate:{order_id}:4"),
+                InlineKeyboardButton(text="⭐️5", callback_data=f"rate:{order_id}:5"),
+            ]
+        ])
+
+        await callback.message.answer(
+            f"✅ Siz #{order_id}-ID buyurtmani tasdiqladingiz!\n\nIltimos, sotuvchiga baho bering:",
+            reply_markup=rating_keyboard
+        )
+
+        await callback.answer()
+
+    except (IndexError, ValueError):
+        await callback.message.answer("❗ Buyurtma ID noto‘g‘ri ko‘rsatildi.")
+        await callback.answer()
+
+@dp.callback_query(F.data.startswith("rate:"))
+async def rate_seller(callback: CallbackQuery):
+    try:
+        parts = callback.data.split(":")
+        order_id = int(parts[1])
+        rating = int(parts[2])
+
+        # Baho saqlash yoki xabar berish
+        await callback.message.answer(
+            f"🎉 Rahmat! Siz sotuvchiga ⭐️{rating}/5 baho berdingiz.\n"
+            f"📦 Buyurtma ID: #{order_id}\n\n"
+            "Agar sizga yana ilmiy ish kerak bo‘lsa yoki yangi buyurtma bermoqchi bo‘lsangiz, "
+            "botimizni qayta ishga tushiring: /start\n\n"
+            "Sifatli xizmatlar uchun bizni tanlaganingizdan mamnunmiz! 😊"
+        )
+        await callback.answer()
+
+        # Bu yerda siz bahoni databasega saqlashingiz mumkin (agar kerak bo‘lsa)
+
+    except Exception as e:
+        await callback.message.answer("❗ Baho berishda xatolik yuz berdi.")
+        await callback.answer()
+
+
+
+
+
+
 
 
 
