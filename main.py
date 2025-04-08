@@ -11,6 +11,7 @@ from aiogram.types import (
 from datetime import datetime
 from dotenv import load_dotenv
 from database import *
+from aiogram.types import LabeledPrice, PreCheckoutQuery
 from aiogram.types import CallbackQuery
 
 
@@ -59,11 +60,14 @@ def reply_start_btns():
     )
 
 def language_btns():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="O'zbek"), KeyboardButton(text="Rus"), KeyboardButton(text="Ingliz")]
-        ],
-        resize_keyboard=True, one_time_keyboard=True
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_uz"),
+                InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en"),
+                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")
+            ]
+        ]
     )
 
 # Buyurtma yangilanishini yoki eslatmalarni rejalashtirish funksiyasi
@@ -81,26 +85,38 @@ async def start(message: types.Message):
 
 @dp.message(F.text == "🛒 Buyurtma berish")
 async def new_order_start(message: types.Message, state: FSMContext):
-    await message.answer("Buyurtma kategoriyasini tanlang:", reply_markup=category_btns())
+    await message.answer("📂 Buyurtmangiz tegishli bo‘lgan kategoriyani tanlang:", reply_markup=category_btns())
     await state.set_state(OrderState.category)
 
 @dp.message(OrderState.category)
 async def set_category(message: types.Message, state: FSMContext):
     await state.update_data(category=message.text)
-    await message.answer("Buyurtma tavsifini kiriting:")
+    await message.answer("📝 Buyurtma tavsifini kiriting (misol uchun: 'Kichik reklama matni tayyorlash'):")
     await state.set_state(OrderState.description)
 
 
 @dp.message(OrderState.description)
 async def set_description(message: types.Message, state: FSMContext):
     await state.update_data(description=message.text)
-    await message.answer("Buyurtma tilini kiriting:", reply_markup=language_btns())
+    await message.answer("🌐 Buyurtmangiz qaysi tilda tayyorlanishini xohlaysiz? Tilni tanlang:", reply_markup=language_btns())
     await state.set_state(OrderState.language)
 
-@dp.message(OrderState.language)
-async def set_language(message: types.Message, state: FSMContext):
-    await state.update_data(language=message.text)
-    await message.answer("Buyurtma narxini kiriting:")
+
+@dp.callback_query(lambda c: c.data.startswith("lang_"))
+async def set_language(callback: types.CallbackQuery, state: FSMContext):
+    lang_code = callback.data.split("_")[1]
+
+    lang_map = {
+        "uz": "O'zbek",
+        "en": "English",
+        "ru": "Русский"
+    }
+    language = lang_map.get(lang_code, "Noma'lum")
+
+    await state.update_data(language=language)
+
+    await callback.message.edit_reply_markup()
+    await callback.message.answer("💰 Buyurtma narxini kiriting:")
     await state.set_state(OrderState.price)
 
 
@@ -111,10 +127,9 @@ async def set_price(message: types.Message, state: FSMContext):
         
         if price < 5000:
             await message.reply("❌ Narx 5000 dan kam bo‘lmasligi kerak!")
-            return  # Narx 5000 dan kam bo‘lsa, keyingi qadamga o‘tmaslik
-
+            return 
         await state.update_data(price=price)
-        await message.answer("Buyurtma muddati (YYYY-MM-DD HH:MM formatida):")
+        await message.answer("⏳ Iltimos, buyurtma muddati uchun necha kun kerakligini kiriting (faqat son).\n\nMasalan: 5")
         await state.set_state(OrderState.deadline)
     except ValueError:
         await message.reply("❌ Iltimos, faqat raqam kiriting!")
@@ -138,48 +153,63 @@ async def send_admin_contact(message: types.Message):
     )
 
 
-# 📦 Buyurtmalarim komandasini qo‘shish
+
+
+
 @dp.message(F.text == "📦 Buyurtmalarim")
 async def cmd_buyurtmalarim(message: types.Message):
     user_id = message.from_user.id
-    orders = get_orders_by_buyer(user_id)  # Database function to fetch orders by user_id
 
-    if orders:
-        response = "Sizning buyurtmalaringiz:\n\n"
-        for order in orders:
-            order_id = order[0]  # order[0] - order ID
-            status = order[6]  # order[6] - status
-            if status == 'Qabul qilingan':
-                response += f"Buyurtma #{order_id}: Fayl jonatish kutulmoqda.\n"
-            else:
-                response += f"Buyurtma #{order_id}: To‘lov qilinmagan, to‘lov qilingandan so‘ng sizga fayl yuboriladi.\n"
-            
-            # Check if the message exceeds the limit
-            if len(response) > 4000:
-                await message.answer(response)  # Send the current part
-                response = ""  # Reset the response
+    # First, check if the user is a buyer or a seller
+    orders = get_orders_by_buyer(user_id)  # Attempt to get orders as a buyer
 
-        # Send the remaining part of the response if there is any
-        if response:
-            await message.answer(response)
+    if not orders:  # If no orders found as a buyer, try fetching as a seller
+        orders = get_orders_by_seller(user_id)
 
-    else:
-        await message.answer("Sizda hech qanday buyurtma mavjud emas.")
+    if not orders:
+        await message.answer("📭 Sizda hech qanday buyurtma mavjud emas.")
+        return
+
+    for order in orders:
+        order_id = order[0]
+        category = order[1]
+        description = order[2]
+        language = order[3]
+        price = order[4]
+        deadline = order[5]
+        status = order[6]
+
+        # Holat bo‘yicha matn
+        if status == 'Qabul qilingan':
+            holat_text = "✅ Qabul qilingan "
+        else:
+            holat_text = "❌ Ochiq — To‘lov qilinmagan"
+
+        # Buyurtma matni
+        text = f"""📦 <b>Buyurtma #{order_id}</b>
+                    📂 <b>Kategoriya:</b> {category}
+                    📝 <b>Tavsif:</b> {description}
+                    🌐 <b>Til:</b> {language}
+                    💰 <b>Narx:</b> {price} so‘m
+                    ⏰ <b>Muddat:</b> {deadline}
+                    📍 <b>Status:</b> {holat_text}
+                    """
+
+        await message.answer(text, parse_mode="HTML")
 
 
+from datetime import datetime, timedelta
 
 @dp.message(OrderState.deadline)
 async def set_deadline(message: types.Message, state: FSMContext):
     try:
-        deadline = datetime.strptime(message.text, "%Y-%m-%d %H:%M")
-        
-        # Hozirgi vaqtni olish
-        current_time = datetime.now()
+        days = int(message.text.strip())
 
-        # Agar kiritilgan vaqt hozirgi vaqtdan oldin bo'lsa, ogohlantirish yuborish
-        if deadline < current_time:
-            await message.reply("❌ Xato! Kiritilgan vaqt hozirgi vaqtdan oldin bo'la olmaydi. Iltimos, kelajakdagi vaqtni kiriting.")
-            return  
+        if days <= 0:
+            await message.reply("❌ Xato! Iltimos, 1 yoki undan katta kun kiriting.")
+            return
+
+        deadline = datetime.now() + timedelta(days=days)
 
         await state.update_data(deadline=deadline.strftime("%Y-%m-%d %H:%M"))
 
@@ -202,23 +232,34 @@ async def set_deadline(message: types.Message, state: FSMContext):
         await state.clear()
 
     except ValueError:
-        await message.reply("❌ Xato! Iltimos, YYYY-MM-DD HH:MM formatida kiriting.")
+        await message.reply("❌ Iltimos, necha kunda topshirilishi kerakligini faqat son bilan kiriting (masalan: 5).")
 
-# ✅ Jo‘natish tugmasi bosilganda
+
+
+
+
+
+
 @dp.callback_query(lambda c: c.data.startswith("confirm_"))
 async def confirm_order(callback: types.CallbackQuery, state: FSMContext):
     order_id = int(callback.data.split("_")[1])
 
+    # 🧼 Tugmalarni olib tashlash
+    await callback.message.edit_reply_markup(reply_markup=None)
+
+    # Buyurtmani guruhga yuborish
     await send_order_to_group(order_id, GROUP_CHAT_ID_1, callback.from_user.id)
 
+    # Repost qilish uchun background task
     asyncio.create_task(schedule_order_repost(order_id))
 
-
     await state.clear()
+
 
 # ✏️ Tahrirlash tugmasi bosilganda
 @dp.callback_query(lambda c: c.data.startswith("edit_"))
 async def edit_order(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("✏️ Iltimos, buyurtma ma’lumotlarini qayta kiriting.",reply_markup=category_btns())
     await state.set_state(OrderState.category)  # Boshlang‘ich state ga qaytarish
 
@@ -566,7 +607,7 @@ async def handle_offer_selection(callback: types.CallbackQuery):
     # Sotuvchini olish
     seller_user = await bot.get_chat(seller_id)
     seller_name = seller_user.full_name
-
+    
     # Tugmalar
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -595,7 +636,6 @@ async def handle_offer_selection(callback: types.CallbackQuery):
 
 
 "======================================================== TO'LOV TIZMI=========================================================="
-from aiogram.types import LabeledPrice, PreCheckoutQuery
 
 
 class FileSendState(StatesGroup):
@@ -782,41 +822,38 @@ async def confirm_order(callback: CallbackQuery):
         await callback.message.answer("❗ Buyurtma ID noto‘g‘ri ko‘rsatildi.")
         await callback.answer()
 
+
 @dp.callback_query(F.data.startswith("rate:"))
 async def rate_seller(callback: CallbackQuery):
     try:
         parts = callback.data.split(":")
         order_id = int(parts[1])
         rating = int(parts[2])
+        print(parts)
+        # Buyurtma IDsi orqali sotuvchi IDni olish
+        seller_id = get_seller_id_by_order(order_id)
+        print(seller_id)
 
-        # Baho saqlash yoki xabar berish
-        await callback.message.answer(
-            f"🎉 Rahmat! Siz sotuvchiga ⭐️{rating}/5 baho berdingiz.\n"
-            f"📦 Buyurtma ID: #{order_id}\n\n"
-            "Agar sizga yana ilmiy ish kerak bo‘lsa yoki yangi buyurtma bermoqchi bo‘lsangiz, "
-            "botimizni qayta ishga tushiring: /start\n\n"
-            "Sifatli xizmatlar uchun bizni tanlaganingizdan mamnunmiz! 😊"
-        )
-        await callback.answer()
+        if seller_id:
+            # Bahoni sotuvchiga qo‘shish
+            add_rating(order_id, seller_id, rating)
 
-        # Bu yerda siz bahoni databasega saqlashingiz mumkin (agar kerak bo‘lsa)
+            # Foydalanuvchiga javob yuborish
+            await callback.message.answer(
+                f"🎉 Rahmat! Siz sotuvchiga ⭐️{rating}/5 baho berdingiz.\n"
+                f"📦 Buyurtma ID: #{order_id}\n\n"
+                "Agar sizga yana ilmiy ish kerak bo‘lsa yoki yangi buyurtma bermoqchi bo‘lsangiz, "
+                "botimizni qayta ishga tushiring: /start\n\n"
+                "Sifatli xizmatlar uchun bizni tanlaganingizdan mamnunmiz! 😊"
+            )
+            await callback.answer()
 
+        else:
+            await callback.answer("❌ Buyurtma topilmadi.")
+        
     except Exception as e:
         await callback.message.answer("❗ Baho berishda xatolik yuz berdi.")
         await callback.answer()
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -832,20 +869,23 @@ async def handle_offer_acceptance(callback: types.CallbackQuery):
         await callback.message.answer("❌ Callback ma'lumotlari noto‘g‘ri.")
         return
 
+    # Taklifni solishtirish
     selected_offer = next(
-    (offer for offer in offers if str(offer["order_id"]) == str(order_id) and int(offer["seller_id"]) == seller_id),
-    None    )
-    
+        (offer for offer in offers if str(offer["order_id"]) == str(order_id) and int(offer["seller_id"]) == seller_id),
+        None
+    )
 
+    if not selected_offer:
+        await callback.message.answer("❌ Taklif topilmadi yoki eskirgan.")
+        return
 
-    price = selected_offer["money"]  # Taklif summasise
-    
-    buyer_id = callback.from_user.id
-    accepted_orders[buyer_id] = seller_id
+    price = selected_offer["money"]  # Taklif summasini olish
+
+    buyer_id = callback.from_user.id  # Xaridorning ID sini olish
+    accepted_orders[buyer_id] = (seller_id, order_id)  # Xaridor va sotuvchini va buyurtma ID sini bog'lash
 
     # To'lovni boshlash
-    await create_payment(price, buyer_id)  # Bu yerda buyer IDsi va price ni uzatamiz
-
+    await create_payment(price, buyer_id)  # Bu yerda buyer ID va price ni uzatamiz
 
     # Sotuvchiga xabar yuborish
     try:
@@ -857,8 +897,7 @@ async def handle_offer_acceptance(callback: types.CallbackQuery):
     except Exception as e:
         await callback.message.answer("❌ Sotuvchiga xabar yuborishda xatolik yuz berdi.")
 
-
-
+    # Xaridorga xabar yuborish
     await callback.message.answer("✅ Taklif qabul qilindi! Sotuvchiga xabar yuborildi.")
 
 
