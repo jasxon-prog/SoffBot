@@ -788,7 +788,7 @@ async def contact_admin(callback: CallbackQuery):
         "ℹ️ Eslatma: Iltimos, adminga murojaat qilayotganda avval buyurtma raqamingizni yozing, "
         "so‘ngra muammo yoki shikoyatingizni tushuntiring. Bu javob berish jarayonini tezlashtiradi."
     )
-
+    await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer(admin_info)
     await callback.answer()
 
@@ -799,7 +799,7 @@ async def contact_admin(callback: CallbackQuery):
 async def confirm_order(callback: CallbackQuery):
     try:
         order_id = int(callback.data.split("_")[1])
-
+        await callback.message.edit_reply_markup(reply_markup=None)
         # Baholash uchun tugmalar
         rating_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
@@ -846,6 +846,7 @@ async def rate_seller(callback: CallbackQuery):
                 "botimizni qayta ishga tushiring: /start\n\n"
                 "Sifatli xizmatlar uchun bizni tanlaganingizdan mamnunmiz! 😊"
             )
+            await callback.message.edit_reply_markup(reply_markup=None)
             await callback.answer()
 
         else:

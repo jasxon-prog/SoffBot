@@ -136,15 +136,19 @@ def get_user_role(user_id: int):
 
 
 # 📌 Buyurtmaga rating qo'shish
-def add_rating(order_id, rating):
+def add_rating(order_id, seller_id, rating):
     conn = sqlite3.connect(DATABASE_NAME)
     cursor = conn.cursor()
 
-    # Buyurtmaga rating qo'shish yoki yangilash
-    cursor.execute("UPDATE orders SET rating = ? WHERE id = ?", (rating, order_id))
+    # Ratingni ratings jadvaliga qo‘shish
+    cursor.execute(
+        "INSERT INTO ratings (order_id, seller_id, rating) VALUES (?, ?, ?)",
+        (order_id, seller_id, rating)
+    )
 
     conn.commit()
     conn.close()
+
 
 
 # 📌 Buyurtmaning bahosini olish
