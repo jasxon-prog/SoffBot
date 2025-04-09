@@ -187,25 +187,46 @@ async def send_admin_contact(message: types.Message):
 
 
 
+import time
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 import requests
+from datetime import datetime, timedelta
 
 router = Router()
 
-BASE_URL = "https://api.soff.uz"  # ← API manzilingizni bu yerga yozing
+BASE_URL = "https://api.soff.uz"  # API manzilingizni bu yerga yozing
 
 # FSM: foydalanuvchi login jarayoni uchun
 class LoginStates(StatesGroup):
     username = State()
     password = State()
 
+# Foydalanuvchilar uchun ma'lumotlarni saqlash (masalan, SQLite)
+USER_SESSIONS = {}
+
+# Profilni olish va 3 kunni tekshirish
+def is_login_valid(user_id: int):
+    if user_id not in USER_SESSIONS:
+        return False
+
+    login_time = USER_SESSIONS[user_id]['login_time']
+    # 3 kun (72 soat)ni tekshirish
+    if datetime.now() - login_time > timedelta(days=3):
+        return False
+    return True
+
 @dp.message(F.text == "👤 Profil")
 async def ask_username(message: Message, state: FSMContext):
-    await message.answer("Iltimos, username yoki telefon raqamingizni kiriting:")
-    await state.set_state(LoginStates.username)
+    if not is_login_valid(message.from_user.id):
+        # Agar foydalanuvchi 3 kundan oshgan bo'lsa, yana login qilishini so'raymiz
+        await message.answer("Sizning sessiyangiz tugagan. Iltimos, yana login qiling:")
+        await state.set_state(LoginStates.username)
+    else:
+        # 3 kun ichida profilga kirish
+        await show_profile(message)
 
 @dp.message(LoginStates.username)
 async def ask_password(message: Message, state: FSMContext):
@@ -245,20 +266,26 @@ async def login_user(message: Message, state: FSMContext):
 
         if profile_response.status_code == 200:
             profile = profile_response.json()
-            print(profile)
+
+            # Foydalanuvchi login vaqtini saqlash
+            USER_SESSIONS[message.from_user.id] = {
+                'login_time': datetime.now(),
+                'token': token
+            }
+
             await message.answer(
-                    f"👤 Profil ma’lumotlari:\n"
-                    f"🆔 ID: {profile.get('id')}\n"
-                    f"👥 Ism: {profile.get('first_name')} {profile.get('last_name')}\n"
-                    f"📧 Email: {profile.get('email')}\n"
-                    f"🧾 Roli: {profile.get('role')}\n"
-                    f"💳 Hamyon: {profile.get('wallet')} so'm\n"
-                    f"💼 Kamida buyurtma summasi: {profile.get('min_sum')} so'm\n"
-                    f"📨 Taklif qilgan foydalanuvchilar soni: {profile.get('invited_users')}\n"
-                    f"📊 Taklif foizi: {profile.get('inviter_percentage')}%\n"
-                    f"📂 Hujjat yuklangan: {'✅ Ha' if profile.get('have_document') else '❌ Yo‘q'}\n"
-                    f"🛒 Sotuvga qo‘ygan: {'✅ Ha' if profile.get('have_sale') else '❌ Yo‘q'}\n"
-                )
+                f"👤 Profil ma’lumotlari:\n"
+                f"🆔 ID: {profile.get('id')}\n"
+                f"👥 Ism: {profile.get('first_name')} {profile.get('last_name')}\n"
+                f"📧 Email: {profile.get('email')}\n"
+                f"🧾 Roli: {profile.get('role')}\n"
+                f"💳 Hamyon: {profile.get('wallet')} so'm\n"
+                f"💼 Kamida buyurtma summasi: {profile.get('min_sum')} so'm\n"
+                f"📨 Taklif qilgan foydalanuvchilar soni: {profile.get('invited_users')}\n"
+                f"📊 Taklif foizi: {profile.get('inviter_percentage')}%\n"
+                f"📂 Hujjat yuklangan: {'✅ Ha' if profile.get('have_document') else '❌ Yo‘q'}\n"
+                f"🛒 Sotuvga qo‘ygan: {'✅ Ha' if profile.get('have_sale') else '❌ Yo‘q'}\n"
+            )
         else:
             await message.answer(
                 f"⚠️ Profilni olishda xatolik:\n"
@@ -270,13 +297,41 @@ async def login_user(message: Message, state: FSMContext):
 
     await state.clear()
 
+async def show_profile(message: Message):
+    user_id = message.from_user.id
+    # Profilni chiqarish
+    if user_id in USER_SESSIONS:
+        token = USER_SESSIONS[user_id]['token']
+        profile_url = f"{BASE_URL}/auth/profile/"
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
 
+        profile_response = requests.get(url=profile_url, headers=headers)
 
-
-
-
-
-
+        if profile_response.status_code == 200:
+            profile = profile_response.json()
+            await message.answer(
+                f"👤 Profil ma’lumotlari:\n"
+                f"🆔 ID: {profile.get('id')}\n"
+                f"👥 Ism: {profile.get('first_name')} {profile.get('last_name')}\n"
+                f"📧 Email: {profile.get('email')}\n"
+                f"🧾 Roli: {profile.get('role')}\n"
+                f"💳 Hamyon: {profile.get('wallet')} so'm\n"
+                f"💼 Kamida buyurtma summasi: {profile.get('min_sum')} so'm\n"
+                f"📨 Taklif qilgan foydalanuvchilar soni: {profile.get('invited_users')}\n"
+                f"📊 Taklif foizi: {profile.get('inviter_percentage')}%\n"
+                f"📂 Hujjat yuklangan: {'✅ Ha' if profile.get('have_document') else '❌ Yo‘q'}\n"
+                f"🛒 Sotuvga qo‘ygan: {'✅ Ha' if profile.get('have_sale') else '❌ Yo‘q'}\n"
+            )
+        else:
+            await message.answer(
+                f"⚠️ Profilni olishda xatolik:\n"
+                f"Status: {profile_response.status_code}\n"
+                f"Javob: {profile_response.text}"
+            )
+    else:
+        await message.answer("Profilni ko‘rish uchun login qilishingiz kerak.")
 
 
 
