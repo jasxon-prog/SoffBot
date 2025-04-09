@@ -54,6 +54,17 @@ def reply_start_btns():
         keyboard=[
             [KeyboardButton(text='🛒 Buyurtma berish')],
             [KeyboardButton(text='📦 Buyurtmalarim')],
+            [KeyboardButton(text='📞 Admin bilan bog‘lanish')],
+            [KeyboardButton(text="👤 Profil")]
+        ],
+        resize_keyboard=True, one_time_keyboard=True
+    )
+
+def reply_start_btns3():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text='🛒 Buyurtma berish')],
+            [KeyboardButton(text='📦 Buyurtmalarim')],
             [KeyboardButton(text='📞 Admin bilan bog‘lanish')]
         ],
         resize_keyboard=True, one_time_keyboard=True
@@ -79,9 +90,28 @@ async def schedule_order_repost(order_id):
         await send_order_to_group(order_id, GROUP_CHAT_ID_2)  # Ikkinchi guruhga yuborish
 
 
+
+
+
+async def is_member_in_group(user_id: int, chat_id: int, bot: Bot) -> bool:
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        return member.status in ["member", "administrator", "creator"]
+    except:
+        return False
+
+# @dp.message(CommandStart()) funksiyasini yangilash
 @dp.message(CommandStart())
-async def start(message: types.Message):
-    await message.reply("👋 Assalomu alaykum! Buyurtma berish uchun menyudan tanlang:", reply_markup=reply_start_btns())
+async def start(message: types.Message, bot: Bot):
+    chat_id = GROUP_CHAT_ID_1  # O'zingizning guruh ID'nizni kiritishingiz kerak
+    user_id = message.from_user.id
+    
+    # Guruhga a'zo bo'lganini tekshirish
+    if await is_member_in_group(user_id, chat_id, bot):
+        await message.reply("👋 Assalomu alaykum! Buyurtma berish uchun menyudan tanlang:", reply_markup=reply_start_btns())
+    else:
+        await message.reply("👋 Assalomu alaykum! Buyurtma berish uchun menyudan tanlang:", reply_markup=reply_start_btns3())
+
 
 @dp.message(F.text == "🛒 Buyurtma berish")
 async def new_order_start(message: types.Message, state: FSMContext):
@@ -151,6 +181,118 @@ async def send_admin_contact(message: types.Message):
         text=f"📞 Admin bilan bog‘lanish uchun:\n\nTelefon raqami: {ADMIN_PHONE}",
         reply_markup=reply_start_btns()
     )
+
+
+
+
+
+
+from aiogram import Router, F
+from aiogram.types import Message
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
+import requests
+
+router = Router()
+
+BASE_URL = "https://api.soff.uz"  # ← API manzilingizni bu yerga yozing
+
+# FSM: foydalanuvchi login jarayoni uchun
+class LoginStates(StatesGroup):
+    username = State()
+    password = State()
+
+@dp.message(F.text == "👤 Profil")
+async def ask_username(message: Message, state: FSMContext):
+    await message.answer("Iltimos, username yoki telefon raqamingizni kiriting:")
+    await state.set_state(LoginStates.username)
+
+@dp.message(LoginStates.username)
+async def ask_password(message: Message, state: FSMContext):
+    await state.update_data(username=message.text)
+    await message.answer("Endi parolingizni kiriting:")
+    await state.set_state(LoginStates.password)
+
+@dp.message(LoginStates.password)
+async def login_user(message: Message, state: FSMContext):
+    user_data = await state.get_data()
+    username = user_data['username']
+    password = message.text
+
+    # 1. Login qilish
+    login_url = f"{BASE_URL}/auth/login/"
+    data = {"phone_or_email": username, "password": password}
+    try:
+        response = requests.post(url=login_url, data=data)
+    except Exception as e:
+        return await message.answer(f"API bilan bog‘lanishda xatolik: {e}")
+
+    if response.status_code == 400:
+        return await message.answer(f"❌ Login xato: {response.json().get('msg', 'Noma’lum xato')}")
+
+    elif response.status_code == 200:
+        token = response.json().get('access')
+        if not token:
+            return await message.answer("❌ Token olinmadi.")
+
+        # 2. Profilni olish
+        profile_url = f"{BASE_URL}/auth/profile/"
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
+
+        profile_response = requests.get(url=profile_url, headers=headers)
+
+        if profile_response.status_code == 200:
+            profile = profile_response.json()
+            print(profile)
+            await message.answer(
+                    f"👤 Profil ma’lumotlari:\n"
+                    f"🆔 ID: {profile.get('id')}\n"
+                    f"👥 Ism: {profile.get('first_name')} {profile.get('last_name')}\n"
+                    f"📧 Email: {profile.get('email')}\n"
+                    f"🧾 Roli: {profile.get('role')}\n"
+                    f"💳 Hamyon: {profile.get('wallet')} so'm\n"
+                    f"💼 Kamida buyurtma summasi: {profile.get('min_sum')} so'm\n"
+                    f"📨 Taklif qilgan foydalanuvchilar soni: {profile.get('invited_users')}\n"
+                    f"📊 Taklif foizi: {profile.get('inviter_percentage')}%\n"
+                    f"📂 Hujjat yuklangan: {'✅ Ha' if profile.get('have_document') else '❌ Yo‘q'}\n"
+                    f"🛒 Sotuvga qo‘ygan: {'✅ Ha' if profile.get('have_sale') else '❌ Yo‘q'}\n"
+                )
+        else:
+            await message.answer(
+                f"⚠️ Profilni olishda xatolik:\n"
+                f"Status: {profile_response.status_code}\n"
+                f"Javob: {profile_response.text}"
+            )
+    else:
+        await message.answer(f"❌ Login amalga oshmadi. Status: {response.status_code}")
+
+    await state.clear()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -349,6 +491,12 @@ async def offer_order_callback(callback_query: types.CallbackQuery):
     order_id = int(callback_query.data.split("_")[1])
     seller_id = callback_query.from_user.id
 
+        # Buyurtma qabul qilinganini tekshirish
+    if is_order_accepted(order_id):
+        await callback_query.answer("⚠️ Bu buyurtma allaqachon qabul qilingan!", show_alert=True)
+        return
+
+
     # Sotuvchi oldin taklif berganini tekshiramiz
     if seller_id in user_offer_data and user_offer_data[seller_id]["order_id"] == order_id:
         await callback_query.answer("⚠️ Siz allaqachon bu buyurtmaga taklif bergansiz!", show_alert=True)
@@ -367,14 +515,6 @@ async def offer_order_callback(callback_query: types.CallbackQuery):
         chat_id=seller_id,
         text="💰 O'z narxingizni kiriting:"
     )
-
-
-
-
-
-
-
-
 
 
 
@@ -735,7 +875,6 @@ async def ask_for_file(callback: types.CallbackQuery, state: FSMContext):
 
 
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # Faylni qabul qilish va mijozga yuborish
 @dp.message(FileSendState.waiting_for_file, F.document)
@@ -844,7 +983,8 @@ async def rate_seller(callback: CallbackQuery):
                 f"📦 Buyurtma ID: #{order_id}\n\n"
                 "Agar sizga yana ilmiy ish kerak bo‘lsa yoki yangi buyurtma bermoqchi bo‘lsangiz, "
                 "botimizni qayta ishga tushiring: /start\n\n"
-                "Sifatli xizmatlar uchun bizni tanlaganingizdan mamnunmiz! 😊"
+                "Sifatli xizmatlar uchun bizni tanlaganingizdan mamnunmiz! 😊",
+                reply_markup=reply_start_btns()
             )
             await callback.message.edit_reply_markup(reply_markup=None)
             await callback.answer()

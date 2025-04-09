@@ -341,3 +341,25 @@ def get_seller_id_by_order(order_id):
         return seller_id[0]  # Sotuvchi ID
     return None  # Agar sotuvchi topilmasa
 
+
+# SQLite bazasidan foydalanuvchining rolini olish
+def get_user_role(user_id):
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT role FROM users WHERE user_id = ?", (user_id,))
+    role = cursor.fetchone()
+    conn.close()
+    
+    # Agar foydalanuvchi ro'li mavjud bo'lsa, uni qaytaradi
+    if role:
+        return role[0]
+    return None  # Agar fo
+
+
+def is_order_accepted(order_id: int) -> bool:
+    conn = sqlite3.connect(DATABASE_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM orders WHERE id = ?", (order_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None and result[0] == "Qabul qilingan"
