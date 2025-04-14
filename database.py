@@ -1,21 +1,33 @@
 import sqlite3
 
+import sqlite3
+
 DATABASE_NAME = "orders.db"
 
 def create_tables():
     conn = sqlite3.connect(DATABASE_NAME)
+    conn.execute("PRAGMA foreign_keys = ON")  # FOREIGN KEY larni yoqamiz
     cursor = conn.cursor()
 
-    # 'users' jadvalini yaratish (foydalanuvchilar)
+    # 1. Foydalanuvchilar jadvali
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
-            role TEXT CHECK(role IN ('buyer', 'seller'))  -- seller yoki buyer
+            role TEXT CHECK(role IN ('buyer', 'seller'))
         )
     ''')
 
-    # 'orders' jadvalini yaratish (buyurtmalar)
+    # 2. Balans jadvali
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS balances (
+            user_id INTEGER PRIMARY KEY,
+            balance INTEGER DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
+        )
+    ''')
+
+    # 3. Buyurtmalar jadvali
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,19 +37,19 @@ def create_tables():
             price INTEGER,
             deadline TEXT,
             status TEXT DEFAULT 'Ochiq' CHECK(status IN ('Ochiq', 'Qabul qilingan')),
-            user_id INTEGER,  -- buyurtmachi ID
+            user_id INTEGER,
             accepted_by INTEGER,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
-            
+            FOREIGN KEY (user_id) REFERENCES users (user_id),
+            FOREIGN KEY (accepted_by) REFERENCES users (user_id)
         )
     ''')
 
-    # 'offers' jadvalini yaratish (sotuvchilar takliflari)
+    # 4. Takliflar jadvali
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS offers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            order_id INTEGER,  -- buyurtma ID
-            seller_id INTEGER,  -- sotuvchi ID
+            order_id INTEGER,
+            seller_id INTEGER,
             money INTEGER,
             comment TEXT,
             FOREIGN KEY (order_id) REFERENCES orders (id),
@@ -45,7 +57,7 @@ def create_tables():
         )
     ''')
 
-    # 'complaints' jadvalini yaratish (shikoyatlar)
+    # 5. Shikoyatlar jadvali
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS complaints (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +67,7 @@ def create_tables():
         )
     ''')
 
-    # 'ratings' jadvalini yaratish (baholar)
+    # 6. Baholash jadvali
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS ratings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +81,9 @@ def create_tables():
 
     conn.commit()
     conn.close()
+
+
+
 
 
 

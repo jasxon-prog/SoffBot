@@ -146,7 +146,7 @@ async def set_language(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(language=language)
 
     await callback.message.edit_reply_markup()
-    await callback.message.answer("💰 Buyurtma narxini kiriting:")
+    await callback.message.answer("💰 Bujetingiz qancha:")
     await state.set_state(OrderState.price)
 
 
